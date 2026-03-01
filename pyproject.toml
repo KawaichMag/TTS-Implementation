@@ -4,6 +4,9 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "datasets>=4.6.1",
+    "librosa>=0.11.0",
+    "matplotlib>=3.10.8",
+    "tqdm>=4.67.3",
 ]
 
 [dependency-groups]
