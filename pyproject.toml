@@ -4,11 +4,14 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "datasets>=4.6.1",
+    "inflect>=7.5.0",
     "ipywidgets>=8.1.8",
     "librosa>=0.11.0",
     "matplotlib>=3.10.8",
+    "scipy>=1.17.1",
     "torch>=2.10.0",
     "tqdm>=4.67.3",
+    "unidecode>=1.4.0",
 ]
 
 [dependency-groups]
