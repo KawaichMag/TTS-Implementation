@@ -1,3 +1,6 @@
 *.tar
 *.bz2
 LJSpeech-1.1/
+*.pt
+golden_set/
+metadata.csv
