@@ -9,13 +9,13 @@
     "eps": 1e-9,
     "warmup_steps": 4000,
     "scheduler": "noam",
-    "batch_size": 32,
+    "batch_size": 2,
     "ddi": true,
     "fp16_run": true
   },
   "data": {
     "load_mel_from_disk": false,
-    "audio_dir": "datasets/golden_set",
+    "audio_dir": "src/datasets/golden_set",
     "training_files":"filelists/ljs_audio_text_train_filelist.txt",
     "validation_files":"filelists/ljs_audio_text_val_filelist.txt",
     "text_cleaners":["english_cleaners"],
@@ -28,7 +28,7 @@
     "mel_fmin": 0.0,
     "mel_fmax": 8000.0,
     "add_noise": true,
-    "cmudict_path": "utils/text/cmu_dictionary"
+    "cmudict_path": "src/utils/text/cmu_dictionary"
   },
   "model": {
     "hidden_channels": 192,
