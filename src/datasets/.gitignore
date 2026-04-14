@@ -3,4 +3,5 @@
 LJSpeech-1.1/
 *.pt
 golden_set/
+golden_set_2/
 metadata.csv

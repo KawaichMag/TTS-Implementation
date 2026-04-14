@@ -1,105 +1,75 @@
-import math
+import argparse
+from pathlib import Path
 
-import torch
-
-from models.test_encoder import Encoder
-from models.test_decoder import FlowSpecDecoder
-
-import monotonic_align
-from utils import commons
-from utils.data import TextMelCollate, TextMelLoader
-from utils.helpers import get_hparams_from_file
-from utils.text.symbols import symbols
-
-from torch.utils.data import DataLoader
+from inference import run_inference
+from models import Config
+from train import run_training
 
 
-def preprocess(y, y_lengths, y_max_length, n_sqz=1):
-    if y_max_length is not None:
-        y_max_length = (y_max_length // n_sqz) * n_sqz
-        y = y[:, :, :y_max_length]
-    y_lengths = (y_lengths // n_sqz) * n_sqz
-    return y, y_lengths, y_max_length
+def parse_args():
+    parser = argparse.ArgumentParser(description="Compact Grad-TTS training/inference launcher")
+    parser.add_argument("--mode", choices=["train", "inference"], required=True)
+
+    parser.add_argument("--project-dir", type=str, default=".")
+    parser.add_argument("--metadata-path", type=str, default=None)
+    parser.add_argument("--wav-dir", type=str, default=None)
+    parser.add_argument("--artifacts-dir", type=str, default=None)
+
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--learning-rate", type=float, default=None)
+    parser.add_argument("--min-learning-rate", type=float, default=None)
+    parser.add_argument("--diffusion-steps", type=int, default=None)
+    parser.add_argument("--inference-temperature", type=float, default=None)
+    parser.add_argument("--length-scale", type=float, default=None)
+    parser.add_argument("--max-infer-items", type=int, default=None)
+
+    parser.add_argument("--warm-start-checkpoint", type=str, default=None)
+    parser.add_argument("--checkpoint-best", type=str, default=None)
+    parser.add_argument("--checkpoint-last", type=str, default=None)
+    parser.add_argument("--custom-text", type=str, default=None)
+    return parser.parse_args()
+
+
+def build_config_from_args(args) -> Config:
+    cfg = Config(project_dir=Path(args.project_dir))
+    if args.metadata_path:
+        cfg.metadata_path = Path(args.metadata_path)
+    if args.wav_dir:
+        cfg.wav_dir = Path(args.wav_dir)
+    if args.artifacts_dir:
+        cfg.artifacts_dir = Path(args.artifacts_dir)
+    if args.warm_start_checkpoint:
+        cfg.warm_start_checkpoint_path = Path(args.warm_start_checkpoint)
+    if args.checkpoint_best:
+        cfg.checkpoint_best_path = Path(args.checkpoint_best)
+    if args.checkpoint_last:
+        cfg.checkpoint_last_path = Path(args.checkpoint_last)
+
+    overrides = {
+        "epochs": args.epochs,
+        "batch_size": args.batch_size,
+        "learning_rate": args.learning_rate,
+        "min_learning_rate": args.min_learning_rate,
+        "diffusion_steps": args.diffusion_steps,
+        "inference_temperature": args.inference_temperature,
+        "length_scale": args.length_scale,
+        "max_infer_items": args.max_infer_items,
+    }
+    for key, value in overrides.items():
+        if value is not None:
+            setattr(cfg, key, value)
+    return cfg
+
+
+def main():
+    args = parse_args()
+    config = build_config_from_args(args)
+    if args.mode == "train":
+        run_training(config)
+        return
+    run_inference(config, custom_text=args.custom_text)
 
 
 if __name__ == "__main__":
-    hparams = get_hparams_from_file("configs/base.json")
-
-    loader = TextMelLoader("src/datasets/metadata.csv", hparams["data"])
-
-    collate_fn = TextMelCollate(1)
-
-    train_loader = DataLoader(
-        loader,
-        num_workers=2,
-        shuffle=False,
-        batch_size=hparams.train.batch_size,
-        pin_memory=True,
-        drop_last=True,
-        collate_fn=collate_fn,
-    )
-
-    enc = Encoder(
-        vocab_size=len(symbols),
-        hidden_size=80,
-        enc_blocks=6,
-    )
-
-    dec = FlowSpecDecoder(
-        in_channels=80,
-        hidden_channels=16,
-        dilation_rate=5,
-        n_blocks=3,
-        n_layers=3,
-        kernel_size=3,
-    )
-
-    for batch_idx, (x, x_lengths, y, y_lengths) in enumerate(train_loader):
-        # print(x)
-        # print(x_lengths)
-        # print(y)
-        # print(y_lengths)
-
-        x_m, x_logs, dur, x_mask = enc(x, x_lengths)
-
-        y_max_length = y.size(2)
-        y, y_lengths, y_max_length = preprocess(y, y_lengths, y_max_length)
-        z_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y_max_length), 1).to(
-            x_mask.dtype
-        )
-        attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
-
-        z, logdet = dec(y, z_mask)
-
-        with torch.no_grad():
-            print(z.shape)
-
-            x_s_sq_r = torch.exp(-2 * x_logs)
-            print(x_s_sq_r.shape)
-            logp1 = torch.sum(-0.5 * math.log(2 * math.pi) - x_logs, [1]).unsqueeze(
-                -1
-            )  # [b, t, 1]
-            logp2 = torch.matmul(
-                x_s_sq_r.transpose(1, 2), -0.5 * (z**2)
-            )  # [b, t, d] x [b, d, t'] = [b, t, t']
-            logp3 = torch.matmul(
-                (x_m * x_s_sq_r).transpose(1, 2), z
-            )  # [b, t, d] x [b, d, t'] = [b, t, t']
-            logp4 = torch.sum(-0.5 * (x_m**2) * x_s_sq_r, [1]).unsqueeze(
-                -1
-            )  # [b, t, 1]
-            logp = logp1 + logp2 + logp3 + logp4  # [b, t, t']
-
-            attn = (
-                monotonic_align.maximum_path(logp, attn_mask.squeeze(1))
-                .unsqueeze(1)
-                .detach()
-            )
-
-            print(attn)
-
-        break
-
-    # print(loader[0][1].shape)
-
-    # print(enc(loader[0][0].unsqueeze(0))[0].shape)
+    main()

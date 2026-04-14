@@ -1,4 +1,4 @@
-"""Компактная реализация Grad-TTS: от текстового энкодера до диффузионного декодера."""
+                                                                                       
 
 import math
 
@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 
 def sequence_mask(lengths, max_len=None):
-    """Строит маску валидных позиций по длинам последовательностей."""
+                                                                      
     if max_len is None:
         max_len = int(lengths.max().item())
     positions = torch.arange(max_len, device=lengths.device)
@@ -16,7 +16,7 @@ def sequence_mask(lengths, max_len=None):
 
 
 def length_regulate(hidden_states, durations):
-    """Повторяет скрытое состояние каждого токена по его длительности в кадрах."""
+                                                                                  
     expanded = []
     lengths = []
     batch_size, _, channels = hidden_states.shape
@@ -24,12 +24,12 @@ def length_regulate(hidden_states, durations):
     for i in range(batch_size):
         pieces = []
         for state, duration in zip(hidden_states[i], durations[i]):
-            # Один вектор токена превращается в несколько одинаковых кадров.
+                                                                            
             repeats = int(max(duration.item(), 0))
             if repeats > 0:
                 pieces.append(state.unsqueeze(0).repeat(repeats, 1))
         if not pieces:
-            # Не даем последовательности стать пустой, даже если все длительности нулевые.
+                                                                                          
             pieces = [hidden_states[i, :1]]
         sequence = torch.cat(pieces, dim=0)
         expanded.append(sequence)
@@ -44,7 +44,7 @@ def length_regulate(hidden_states, durations):
 
 
 def fix_len_compatibility(length, num_downsamplings):
-    """Округляет длину вверх так, чтобы U-Net мог несколько раз делить ее пополам."""
+                                                                                     
     scale = 2 ** max(int(num_downsamplings), 0)
     if scale <= 1:
         return int(length)
@@ -52,7 +52,7 @@ def fix_len_compatibility(length, num_downsamplings):
 
 
 def pad_last_dim(x, target_length):
-    """Дополняет нулями последний размер тензора до нужной длины."""
+                                                                    
     pad = int(target_length) - int(x.shape[-1])
     if pad <= 0:
         return x
@@ -60,7 +60,7 @@ def pad_last_dim(x, target_length):
 
 
 def pad_time_dim(x, target_length):
-    """Дополняет временную ось тензора формата [B, T, C]."""
+                                                            
     pad = int(target_length) - int(x.shape[1])
     if pad <= 0:
         return x
@@ -68,7 +68,7 @@ def pad_time_dim(x, target_length):
 
 
 def make_group_norm(channels, max_groups=8):
-    """Подбирает число групп для GroupNorm, которое делит число каналов без остатка."""
+                                                                                       
     groups = min(max_groups, channels)
     while groups > 1 and channels % groups != 0:
         groups -= 1
@@ -76,7 +76,7 @@ def make_group_norm(channels, max_groups=8):
 
 
 class ConvNormBlock(nn.Module):
-    """Свертка по времени с нормализацией и dropout для обработки текстовых признаков."""
+                                                                                         
 
     def __init__(self, in_channels, out_channels, kernel_size, dropout):
         super().__init__()
@@ -85,7 +85,7 @@ class ConvNormBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, text_mask):
-        """Прогоняет только валидные токены через блок и зануляет паддинг на выходе."""
+                                                                                       
         mask = text_mask.unsqueeze(-1)
         hidden = self.conv((x * mask).transpose(1, 2)).transpose(1, 2)
         hidden = F.relu(hidden)
@@ -95,7 +95,7 @@ class ConvNormBlock(nn.Module):
 
 
 class ChannelLayerNorm(nn.Module):
-    """Нормализация по канальному измерению для тензоров формата [B, C, T]."""
+                                                                              
 
     def __init__(self, channels, eps=1e-4):
         super().__init__()
@@ -104,7 +104,7 @@ class ChannelLayerNorm(nn.Module):
         self.beta = nn.Parameter(torch.zeros(channels))
 
     def forward(self, x):
-        """Вычитает среднее и делит на стандартное отклонение по каналам."""
+                                                                            
         mean = torch.mean(x, dim=1, keepdim=True)
         variance = torch.mean((x - mean) ** 2, dim=1, keepdim=True)
         x = (x - mean) * torch.rsqrt(variance + self.eps)
@@ -112,7 +112,7 @@ class ChannelLayerNorm(nn.Module):
 
 
 class RelativeSelfAttention(nn.Module):
-    """Self-attention с относительными позиционными смещениями между токенами."""
+                                                                                 
 
     def __init__(self, hidden_size, num_heads, dropout=0.1, max_relative_position=4):
         super().__init__()
@@ -133,7 +133,7 @@ class RelativeSelfAttention(nn.Module):
         self.relative_bias = nn.Embedding(2 * max_relative_position + 1, num_heads)
 
     def forward(self, x, text_mask):
-        """Смешивает информацию между токенами, игнорируя позиции паддинга."""
+                                                                              
         batch_size, time_steps, _ = x.shape
 
         query = self.query_proj(x).view(batch_size, time_steps, self.num_heads, self.head_dim).transpose(1, 2)
@@ -148,7 +148,7 @@ class RelativeSelfAttention(nn.Module):
         relative_bias = self.relative_bias(relative_positions + self.max_relative_position)
         scores = scores + relative_bias.permute(2, 0, 1).unsqueeze(0)
 
-        # Паддинг исключается из softmax, чтобы не портить карту внимания.
+                                                                          
         key_padding = ~text_mask.bool()
         scores = scores.masked_fill(key_padding[:, None, None, :], -1e4)
 
@@ -162,7 +162,7 @@ class RelativeSelfAttention(nn.Module):
 
 
 class EncoderFeedForward(nn.Module):
-    """Feed-forward часть энкодера на 1D-свертках вместо линейных слоев."""
+                                                                           
 
     def __init__(self, hidden_size, kernel_size, multiplier, dropout):
         super().__init__()
@@ -172,7 +172,7 @@ class EncoderFeedForward(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, text_mask):
-        """Расширяет скрытое пространство, применяет нелинейность и сжимает обратно."""
+                                                                                       
         mask = text_mask.unsqueeze(-1)
         hidden = self.conv1((x * mask).transpose(1, 2))
         hidden = F.relu(hidden)
@@ -183,7 +183,7 @@ class EncoderFeedForward(nn.Module):
 
 
 class EncoderBlock(nn.Module):
-    """Трансформер-подобный блок: attention, затем FFN, оба с residual-связями."""
+                                                                                  
 
     def __init__(self, hidden_size, num_heads, attention_dropout, dropout, ffn_kernel_size, ffn_multiplier, max_relative_position):
         super().__init__()
@@ -199,7 +199,7 @@ class EncoderBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, text_mask):
-        """Обновляет представление текста через внимание и feed-forward преобразование."""
+                                                                                          
         mask = text_mask.unsqueeze(-1)
         attn_out = self.self_attn(self.attn_norm(x), text_mask)
         x = (x + self.dropout(attn_out)) * mask
@@ -209,7 +209,7 @@ class EncoderBlock(nn.Module):
 
 
 class TextEncoder(nn.Module):
-    """Преобразует входные токены в скрытые признаки для длительностей и акустики."""
+                                                                                     
 
     def __init__(self, vocab_size, config):
         super().__init__()
@@ -243,7 +243,7 @@ class TextEncoder(nn.Module):
         self.output_norm = nn.LayerNorm(config.hidden_size)
 
     def forward(self, text_ids, text_lengths):
-        """Эмбеддит текст, прогоняет его через prenet и стек энкодерных блоков."""
+                                                                                  
         text_mask = sequence_mask(text_lengths, text_ids.shape[1]).float()
         mask = text_mask.unsqueeze(-1)
 
@@ -262,7 +262,7 @@ class TextEncoder(nn.Module):
 
 
 class DurationPredictor(nn.Module):
-    """Предсказывает логарифм длительности каждого токена в будущих акустических кадрах."""
+                                                                                           
 
     def __init__(self, hidden_size, filter_size, num_layers=2, kernel_size=3, dropout=0.1):
         super().__init__()
@@ -286,7 +286,7 @@ class DurationPredictor(nn.Module):
         self.proj = nn.Conv1d(filter_size, 1, kernel_size=1)
 
     def _forward_block(self, hidden, mask, conv, norm):
-        """Один внутренний сверточный блок предсказателя длительностей."""
+                                                                          
         hidden = conv(hidden * mask)
         hidden = F.relu(hidden)
         hidden = norm(hidden)
@@ -294,7 +294,7 @@ class DurationPredictor(nn.Module):
         return hidden
 
     def forward(self, hidden_states, text_mask):
-        """Возвращает по одному скаляру лог-длительности на каждый токен текста."""
+                                                                                   
         mask = text_mask.unsqueeze(1)
         hidden = hidden_states.transpose(1, 2)
         hidden = self._forward_block(hidden, mask, self.input_conv, self.input_norm)
@@ -307,7 +307,7 @@ class DurationPredictor(nn.Module):
 
 
 class PriorPredictor(nn.Module):
-    """Строит грубое покадровое мел-предсказание, которое служит prior mean для диффузии."""
+                                                                                            
 
     def __init__(self, hidden_size, n_mels, num_layers=3, kernel_size=5, dropout=0.1):
         super().__init__()
@@ -326,7 +326,7 @@ class PriorPredictor(nn.Module):
         self.out_proj = nn.Conv1d(hidden_size, n_mels, kernel_size=1)
 
     def forward(self, conditioning, frame_mask=None):
-        """Преобразует покадровое условие в стартовую мел-спектрограмму `mu`."""
+                                                                                
         if frame_mask is None:
             frame_mask = conditioning.new_ones(conditioning.shape[0], 1, conditioning.shape[1])
         mask = frame_mask.squeeze(1)
@@ -338,39 +338,39 @@ class PriorPredictor(nn.Module):
 
 
 class Mish(nn.Module):
-    """Гладкая нелинейность Mish, часто используемая в диффузионных моделях."""
+                                                                               
 
     def forward(self, x):
-        """Применяет формулу `x * tanh(softplus(x))`."""
+                                                        
         return x * torch.tanh(F.softplus(x))
 
 
 class Downsample2d(nn.Module):
-    """Уменьшает разрешение карты признаков в U-Net в 2 раза."""
+                                                                
 
     def __init__(self, dim):
         super().__init__()
         self.conv = nn.Conv2d(dim, dim, kernel_size=3, stride=2, padding=1)
 
     def forward(self, x):
-        """Выполняет downsampling сверткой со stride=2."""
+                                                          
         return self.conv(x)
 
 
 class Upsample2d(nn.Module):
-    """Увеличивает разрешение карты признаков в U-Net в 2 раза."""
+                                                                  
 
     def __init__(self, dim):
         super().__init__()
         self.conv = nn.ConvTranspose2d(dim, dim, kernel_size=4, stride=2, padding=1)
 
     def forward(self, x):
-        """Выполняет upsampling транспонированной сверткой."""
+                                                              
         return self.conv(x)
 
 
 class Rezero(nn.Module):
-    """Оборачивает слой в обучаемый коэффициент, стартующий с нуля."""
+                                                                      
 
     def __init__(self, fn):
         super().__init__()
@@ -378,24 +378,24 @@ class Rezero(nn.Module):
         self.g = nn.Parameter(torch.zeros(1))
 
     def forward(self, x):
-        """Позволяет модели постепенно включать вклад вложенного блока."""
+                                                                          
         return self.fn(x) * self.g
 
 
 class Residual(nn.Module):
-    """Добавляет residual-связь поверх произвольной функции."""
+                                                               
 
     def __init__(self, fn):
         super().__init__()
         self.fn = fn
 
     def forward(self, x, *args, **kwargs):
-        """Складывает результат блока с исходным входом."""
+                                                           
         return self.fn(x, *args, **kwargs) + x
 
 
 class Block2d(nn.Module):
-    """Базовый 2D-блок U-Net: свертка, GroupNorm и Mish."""
+                                                           
 
     def __init__(self, dim, dim_out, groups=8):
         super().__init__()
@@ -406,13 +406,13 @@ class Block2d(nn.Module):
         )
 
     def forward(self, x, mask):
-        """Обрабатывает только валидные области и повторно накладывает маску на выход."""
+                                                                                         
         output = self.block(x * mask)
         return output * mask
 
 
 class ResnetBlock2d(nn.Module):
-    """Residual-блок U-Net с добавлением эмбеддинга времени и условного смещения."""
+                                                                                    
 
     def __init__(self, dim, dim_out, time_emb_dim, groups=8):
         super().__init__()
@@ -422,7 +422,7 @@ class ResnetBlock2d(nn.Module):
         self.res_conv = nn.Conv2d(dim, dim_out, kernel_size=1) if dim != dim_out else nn.Identity()
 
     def forward(self, x, mask, time_emb, cond_bias=None):
-        """Смешивает локальные признаки с шагом диффузии и внешним условием."""
+                                                                               
         hidden = self.block1(x, mask)
         hidden = hidden + self.mlp(time_emb).unsqueeze(-1).unsqueeze(-1)
         if cond_bias is not None:
@@ -432,7 +432,7 @@ class ResnetBlock2d(nn.Module):
 
 
 class LinearAttention2d(nn.Module):
-    """Упрощенное attention по 2D-карте, более дешевое по памяти, чем полное."""
+                                                                                
 
     def __init__(self, dim, heads=4, dim_head=32):
         super().__init__()
@@ -443,7 +443,7 @@ class LinearAttention2d(nn.Module):
         self.to_out = nn.Conv2d(hidden_dim, dim, kernel_size=1)
 
     def forward(self, x):
-        """Собирает глобальный контекст по пространственно-временной карте признаков."""
+                                                                                        
         batch_size, _, height, width = x.shape
         qkv = self.to_qkv(x).view(batch_size, 3, self.heads, self.dim_head, height * width)
         q, k, v = qkv.unbind(dim=1)
@@ -455,14 +455,14 @@ class LinearAttention2d(nn.Module):
 
 
 class SinusoidalTimeEmbedding(nn.Module):
-    """Преобразует скалярное время диффузии в синусоидальный вектор признаков."""
+                                                                                 
 
     def __init__(self, dim):
         super().__init__()
         self.dim = dim
 
     def forward(self, t, scale=1000):
-        """Строит эмбеддинг шага `t`, который затем подается в U-Net."""
+                                                                        
         half_dim = self.dim // 2
         if half_dim == 0:
             return t.unsqueeze(-1)
@@ -476,7 +476,7 @@ class SinusoidalTimeEmbedding(nn.Module):
 
 
 class GradTTSEstimator(nn.Module):
-    """U-Net, который оценивает score-функцию для текущего состояния диффузии."""
+                                                                                 
 
     def __init__(self, dim, cond_dim, n_mels, dim_mults=(1, 2, 4), groups=8, pe_scale=1000):
         super().__init__()
@@ -544,19 +544,19 @@ class GradTTSEstimator(nn.Module):
         self.final_cond_gain = nn.Parameter(torch.zeros(1))
 
     def make_cond_bias(self, conditioning, proj, gain, width, dtype):
-        """Проецирует условие в каналы текущего уровня U-Net и подгоняет его по длине."""
+                                                                                         
         cond_bias = proj(conditioning)
         if cond_bias.shape[-1] != width:
             cond_bias = F.interpolate(cond_bias, size=width, mode="linear", align_corners=False)
         return (gain * cond_bias).unsqueeze(2).to(dtype=dtype)
 
     def forward(self, x, mask, mu, conditioning, t):
-        """Оценивает направление обновления для зашумленного мел-состояния `x`."""
+                                                                                  
         time_emb = self.time_pos_emb(t, scale=self.pe_scale)
         time_emb = self.time_mlp(time_emb)
         conditioning = conditioning.transpose(1, 2)
 
-        # На вход U-Net идут две карты: prior mean и текущее зашумленное состояние.
+                                                                                   
         hidden = torch.stack([mu, x], dim=1)
         mask_2d = mask.unsqueeze(1)
 
@@ -570,7 +570,7 @@ class GradTTSEstimator(nn.Module):
             hidden = attn(hidden)
             skips.append(hidden)
             hidden = downsample(hidden * current_mask)
-            # Маска уменьшается вместе с картой признаков, чтобы паддинг оставался корректным.
+                                                                                              
             masks.append(current_mask[:, :, :, ::2])
 
         masks = masks[:-1]
@@ -596,14 +596,14 @@ class GradTTSEstimator(nn.Module):
 
 
 def get_noise(t, beta_init, beta_term, cumulative=False):
-    """Возвращает мгновенный или накопленный уровень шума для линейного beta-расписания."""
+                                                                                           
     if cumulative:
         return beta_init * t + 0.5 * (beta_term - beta_init) * (t ** 2)
     return beta_init + (beta_term - beta_init) * t
 
 
 class DiffusionDecoder(nn.Module):
-    """Диффузионный декодер, который уточняет prior mean до целевой мел-спектрограммы."""
+                                                                                         
 
     def __init__(
         self,
@@ -650,11 +650,11 @@ class DiffusionDecoder(nn.Module):
         self.num_downsamplings = self.estimator.num_downsamplings
 
     def make_prior(self, conditioning, frame_mask=None):
-        """Строит стартовое среднее распределения по покадровому условию."""
+                                                                            
         return self.prior_net(conditioning, frame_mask=frame_mask)
 
     def sample_terminal(self, mu, temperature):
-        """Сэмплирует исходную шумную точку, откуда начинается обратная диффузия."""
+                                                                                    
         temp = max(float(temperature), 1e-4)
         noise = torch.randn_like(mu)
         if self.temperature_mode == "inverse":
@@ -662,7 +662,7 @@ class DiffusionDecoder(nn.Module):
         return mu + noise * temp
 
     def forward_diffusion(self, x0, mask, mu, t):
-        """Прямой процесс: добавляет шум к чистому сигналу на моменте времени `t`."""
+                                                                                     
         time = t.unsqueeze(-1).unsqueeze(-1)
         cum_noise = get_noise(time, self.beta_min, self.beta_max, cumulative=True)
         alpha = torch.exp(-0.5 * cum_noise)
@@ -673,7 +673,7 @@ class DiffusionDecoder(nn.Module):
         return xt * mask, noise * mask
 
     def score_to_x0(self, xt, mu, score, t):
-        """Восстанавливает оценку чистого сигнала `x0` по текущему состоянию и score."""
+                                                                                        
         time = t.unsqueeze(-1).unsqueeze(-1)
         cum_noise = get_noise(time, self.beta_min, self.beta_max, cumulative=True)
         alpha = torch.exp(-0.5 * cum_noise).clamp_min(1e-4)
@@ -681,14 +681,14 @@ class DiffusionDecoder(nn.Module):
         return (xt - mu * (1.0 - alpha) + variance * score) / alpha
 
     def reverse_diffusion(self, z, mask, mu, conditioning, n_timesteps, stoc=False):
-        """Пошагово убирает шум, переходя от `z` к финальной мел-спектрограмме."""
+                                                                                  
         if n_timesteps < 1:
             raise ValueError("n_timesteps must be >= 1")
         step_size = 1.0 / float(n_timesteps)
         xt = z * mask
 
         for step in range(n_timesteps):
-            # Идем от больших t к малым: модель каждый раз оценивает score и делает шаг к чистому сигналу.
+                                                                                                          
             t = (1.0 - (step + 0.5) * step_size) * torch.ones(z.shape[0], device=z.device, dtype=z.dtype)
             time = t.unsqueeze(-1).unsqueeze(-1)
             noise_t = get_noise(time, self.beta_min, self.beta_max, cumulative=False)
@@ -706,12 +706,12 @@ class DiffusionDecoder(nn.Module):
 
     @torch.no_grad()
     def sample(self, mu, mask, conditioning, n_timesteps, temperature=1.0, stoc=False):
-        """Запускает полный инференс декодера: шумная инициализация плюс обратная диффузия."""
+                                                                                              
         z = self.sample_terminal(mu, temperature) * mask
         return self.reverse_diffusion(z, mask, mu, conditioning, n_timesteps=n_timesteps, stoc=stoc)
 
     def loss_t(self, x0, mask, mu, conditioning, t):
-        """Считает loss на одном случайном шаге диффузии."""
+                                                            
         xt, noise = self.forward_diffusion(x0, mask, mu, t)
         time = t.unsqueeze(-1).unsqueeze(-1)
         cum_noise = get_noise(time, self.beta_min, self.beta_max, cumulative=True)
@@ -728,24 +728,24 @@ class DiffusionDecoder(nn.Module):
         return loss, xt, clean_loss
 
     def sample_training_timesteps(self, batch_size, dtype, device, offset=1e-5):
-        """Сэмплирует моменты времени симметрично, чтобы лучше покрывать весь интервал [0, 1]."""
+                                                                                                 
         half = (batch_size + 1) // 2
         base = torch.rand(half, dtype=dtype, device=device)
         t = torch.cat([base, 1.0 - base], dim=0)[:batch_size]
         return torch.clamp(t, offset, 1.0 - offset)
 
     def compute_loss(self, x0, mask, mu, conditioning, offset=1e-5):
-        """Выбирает случайные моменты времени и считает обучающий loss декодера."""
+                                                                                   
         t = self.sample_training_timesteps(x0.shape[0], x0.dtype, x0.device, offset=offset)
         return self.loss_t(x0, mask, mu, conditioning, t)
 
     def forward(self, z, mask, mu, conditioning, n_timesteps, stoc=False):
-        """Совместимость с интерфейсом `nn.Module`: вызывает обратную диффузию напрямую."""
+                                                                                           
         return self.reverse_diffusion(z, mask, mu, conditioning, n_timesteps=n_timesteps, stoc=stoc)
 
 
 class CompactSpeechSynth(nn.Module):
-    """Полная TTS-модель: энкодер текста, длительности и диффузионный декодер мел-спектрограммы."""
+                                                                                                   
 
     def __init__(self, vocab_size, config):
         super().__init__()
@@ -786,7 +786,7 @@ class CompactSpeechSynth(nn.Module):
         )
 
     def forward_encoder(self, text_ids, text_lengths):
-        """Кодирует текст и параллельно предсказывает лог-длительности токенов."""
+                                                                                  
         text_mask = sequence_mask(text_lengths, text_ids.shape[1]).float()
         encoder_states = self.encoder(text_ids, text_lengths) * text_mask.unsqueeze(-1)
         detach_duration_input = getattr(self.config, "detach_duration_predictor_input", True)
@@ -795,7 +795,7 @@ class CompactSpeechSynth(nn.Module):
         return encoder_states, log_duration_pred, text_mask
 
     def prepare_decoder_tensors(self, conditioning, frame_lengths, mel=None):
-        """Готовит condition, prior и маски для декодера и выравнивает длину под U-Net."""
+                                                                                          
         frame_mask = sequence_mask(frame_lengths, conditioning.shape[1]).unsqueeze(1).float()
         prior_mean = self.decoder.make_prior(conditioning, frame_mask=frame_mask) * frame_mask
 
@@ -804,7 +804,7 @@ class CompactSpeechSynth(nn.Module):
             target_length = min(target_length, mel.shape[-1])
             mel = mel[:, :, :target_length]
 
-        # Во время обучения обрезаем все тензоры до общей доступной длины.
+                                                                          
         conditioning = conditioning[:, :target_length]
         prior_mean = prior_mean[:, :, :target_length]
         frame_mask = frame_mask[:, :, :target_length]
@@ -819,7 +819,7 @@ class CompactSpeechSynth(nn.Module):
         return conditioning, mel, prior_mean, frame_mask, target_length
 
     def crop_training_segment(self, conditioning, mel, prior_mean, frame_mask):
-        """Вырезает случайный сегмент фиксированной длины, чтобы экономить память при обучении."""
+                                                                                                  
         segment_frames = int(getattr(self.config, "decoder_train_segment_frames", 0) or 0)
         if segment_frames <= 0:
             return conditioning, mel, prior_mean, frame_mask
@@ -842,7 +842,7 @@ class CompactSpeechSynth(nn.Module):
 
             copy_len = min(valid_len, segment_frames)
             max_offset = max(valid_len - segment_frames, 0)
-            # Случайное окно помогает видеть разные части длинных примеров на разных шагах обучения.
+                                                                                                    
             start = int(torch.randint(max_offset + 1, (1,), device=mel.device).item()) if max_offset > 0 else 0
             end = start + copy_len
 
@@ -854,7 +854,7 @@ class CompactSpeechSynth(nn.Module):
         return out_conditioning, out_mel, out_prior, out_mask
 
     def compute_losses(self, batch, noise_levels=None):
-        """Считает суммарный loss модели: длительности, prior и диффузионную часть."""
+                                                                                      
         del noise_levels
         text_ids = batch["text_ids"].to(self.config.device)
         text_lengths = batch["text_lengths"].to(self.config.device)
@@ -892,7 +892,7 @@ class CompactSpeechSynth(nn.Module):
 
     @torch.no_grad()
     def synthesize(self, text, tokenizer, noise_levels, temperature=None, length_scale=None):
-        """Выполняет инференс по строке текста и возвращает мел, длительности и диагностику."""
+                                                                                               
         if temperature is None:
             temperature = getattr(self.config, "inference_temperature", 1.0)
         if length_scale is None:
@@ -915,7 +915,7 @@ class CompactSpeechSynth(nn.Module):
         )
         empty_rows = durations.sum(dim=1) == 0
         if empty_rows.any():
-            # Не допускаем полностью пустую последовательность кадров.
+                                                                      
             durations[empty_rows, 0] = 1
 
         conditioning, frame_lengths = length_regulate(encoder_states, durations)
